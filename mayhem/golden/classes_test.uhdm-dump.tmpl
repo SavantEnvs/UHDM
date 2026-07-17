@@ -1,0 +1,66 @@
+@PATH@: Restored design Pre-Elab: 
+design: (@DESIGN@)
+|vpiName:@DESIGN@
+|uhdmallModules:
+\_module_inst: @MOD@ (@MOD@), file:@FILE@, line:10:0
+  |vpiParent:
+  \_design: (@DESIGN@)
+  |vpiFullName:@MOD@
+  |vpiDefName:@MOD@
+  |vpiClassDefn:
+  \_class_defn: (@MOD@::@BASE@)
+    |vpiParent:
+    \_module_inst: @MOD@ (@MOD@), file:@FILE@, line:10:0
+    |vpiName:@BASE@
+    |vpiFullName:@MOD@::@BASE@
+    |vpiParameter:
+    \_parameter: (@P1@)
+      |vpiName:@P1@
+    |vpiMethod:
+    \_function: (@F1@)
+      |vpiName:@F1@
+      |vpiMethod:1
+      |vpiStmt:
+      \_assign_stmt: 
+        |vpiRhs:
+        \_ref_obj: (@P1@)
+          |vpiName:@P1@
+        |vpiLhs:
+        \_ref_obj: (a)
+          |vpiName:a
+    |vpiMethod:
+    \_function: (@F2@)
+      |vpiName:@F2@
+      |vpiMethod:1
+      |vpiStmt:
+      \_method_func_call: (@F1@)
+        |vpiName:@F1@
+    |vpiDerivedClasses:
+    \_class_defn: (@MOD@::@CHILD@)
+      |vpiParent:
+      \_module_inst: @MOD@ (@MOD@), file:@FILE@, line:10:0
+      |vpiName:@CHILD@
+      |vpiFullName:@MOD@::@CHILD@
+      |vpiExtends:
+      \_extends: 
+        |vpiClassTypespec:
+        \_ref_typespec: 
+          |vpiParent:
+          \_extends: 
+          |vpiActual:
+          \_class_typespec: 
+      |vpiMethod:
+      \_function: (@F3@)
+        |vpiName:@F3@
+        |vpiMethod:1
+        |vpiStmt:
+        \_method_func_call: (@F1@)
+  |vpiClassDefn:
+  \_class_defn: (@MOD@::@CHILD@)
+  |vpiTopModule:1
+|uhdmtopModules:
+\_module_inst: @MOD@ (@MOD@), file:@FILE@, line:10:0
+\_weaklyReferenced:
+\_class_typespec: 
+  |vpiClassDefn:
+  \_class_defn: (@MOD@::@BASE@)
