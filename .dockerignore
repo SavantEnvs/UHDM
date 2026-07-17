@@ -1,0 +1,26 @@
+# .dockerignore for the commit-image build.
+# Goal: bake in the FULL repo (including .git history — the grader uses it), dropping only local
+# build artifacts and editor/OS cruft. Dev image, not minimal. Lands at the fork root (the build
+# context) when the template is copied in.
+#
+# NB: keep third_party/ (the vendored capnproto/googletest gitlinks) — build.sh inits the
+# submodules at build time, but their .git metadata under .git/modules must survive, so DON'T
+# exclude .git.
+
+# ── Build outputs / local cruft ──────────────────────────────────────────────
+build/
+build-tests/
+dbuild/
+out/
+asan_default_options.o
+*.o
+*.a
+*.so
+*.dylib
+**/__pycache__/
+ctrf-report.json
+
+# ── Editor / OS noise ────────────────────────────────────────────────────────
+.DS_Store
+*.swp
+*~

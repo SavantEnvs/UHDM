@@ -1,0 +1,30 @@
+project: savantenvs/uhdm
+# Target name preserved from the original mayhemheroes integration (which ran
+# `/install/usr/local/bin/uhdm-dump @@`) so Mayhem run history stays continuous.
+target: uhdm-dump
+
+# File-input (CLI) target: feed the fuzz bytes as a serialized UHDM design file to `uhdm-dump`,
+# which calls UHDM::Serializer::Restore(@@) — the capnproto-backed DESERIALIZER that reconstructs an
+# entire Verilog/SystemVerilog UHDM design tree from the binary, then walks it (visit_designs). The
+# whole restore + tree-walk surface (capnproto reader + UHDM object-model reconstruction) runs on
+# the input. Not libFuzzer: the natural fuzz surface is the CLI on a .uhdm file (like lacc/hicolor).
+# @@ is the input-file placeholder.
+#
+# uhdm-dump with a single file arg dumps the restored design to stdout and exits 0 on a well-formed
+# .uhdm file (the default seed) — so Mayhem can obtain a passing test case — and crashes naturally
+# (SIGABRT/sanitizer) on a malformed serialization that corrupts the restore.
+# /mayhem/uhdm-dump is a thin, fast-terminating wrapper (mayhem/harnesses/uhdm_dump_safe.c) in front
+# of the sanitized restore binary (/mayhem/uhdm-dump.real). UHDM opens the capnproto message with
+# traversalLimitInWords = ULLONG_MAX (Serializer_restore.cpp), so a tiny empty/garbage/crafted input
+# can declare a multi-GB segment table and drive capnp into a multi-second read/alloc before it
+# aborts — the "target times out on the default test case" failure. The wrapper pre-screens that
+# packed-capnp header and rejects implausible declared sizes in microseconds, and arms a wall-clock
+# watchdog, so the EMPTY default test case now passes in ~2 ms while valid .uhdm files still
+# deserialize through the real binary unchanged. The per-cmd `timeout:` below is an additional
+# Mayhem-side cap (defense in depth) on any single test case.
+cmds:
+  - cmd: /mayhem/uhdm-dump @@
+    timeout: 10
+testsuite:
+  - https://$MAYHEM_DOMAIN/$MAYHEM_PROJECT/$MAYHEM_TARGET/testsuite.tar
+  - file://mayhem/uhdm-dump/testsuite
