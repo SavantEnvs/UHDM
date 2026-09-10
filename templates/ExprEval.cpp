@@ -4729,6 +4729,25 @@ expr *ExprEval::reduceExpr(const any *result, bool &invalidValue,
             std::string cval;
             int32_t csize = 0;
             bool stringVal = false;
+            // A packed-array-typed concat (`logic [N-1:0][W-1:0] P = {eN, ...,
+            // e0}`) whose operands are unfolded arithmetic (`{Width{1'b1}} -
+            // ResetValue`) reduces each element to a DEFAULT-width 64-bit int.
+            // The vpiIntConst / vpiUIntConst cases below then hit the
+            // `size == 64` guard and abort the whole fold (c1 = nullptr), so the
+            // concat is never folded and the parameter value is wrong (OpenTitan
+            // prim_count's ResetValues).  Derive the true per-operand element
+            // width from the concat's OWN typespec (total width / operand count)
+            // so those 64-bit operands are truncated to W bits instead.
+            int64_t concatElemW = 0;
+            if (const ref_typespec *ort = op->Typespec()) {
+              if (const typespec *ots = ort->Actual_typespec()) {
+                bool ivw = false;
+                int64_t totW = size(ots, ivw, inst, pexpr, true, muteError);
+                if (!ivw && totW > 0 && !operands.empty() &&
+                    (totW % (int64_t)operands.size() == 0))
+                  concatElemW = totW / (int64_t)operands.size();
+              }
+            }
             for (uint32_t i = 0; i < operands.size(); i++) {
               any *oper = operands[i];
               UHDM_OBJECT_TYPE optype = oper->UhdmType();
@@ -4811,13 +4830,22 @@ expr *ExprEval::reduceExpr(const any *result, bool &invalidValue,
                     break;
                   }
                   case vpiIntConst: {
-                    if (operands.size() == 1 || (size != 64)) {
+                    // A default-width 64-bit operand whose real element width
+                    // is known from the concat typespec is truncated to that
+                    // width instead of aborting the fold.
+                    int32_t useSize = size;
+                    if (size == 64 && operands.size() != 1 && concatElemW > 0 &&
+                        concatElemW < 64) {
+                      useSize = (int32_t)concatElemW;
+                      csize += useSize - size;
+                    }
+                    if (operands.size() == 1 || (useSize != 64)) {
                       sv.remove_prefix(std::string_view("INT:").length());
                       int64_t iv = 0;
                       if (NumUtils::parseInt64(sv, &iv) == nullptr) {
                         iv = 0;
                       }
-                      std::string bin = NumUtils::toBinary(size, iv);
+                      std::string bin = NumUtils::toBinary(useSize, iv);
                       if (op->VpiReordered()) {
                         std::reverse(bin.begin(), bin.end());
                       }
@@ -4828,13 +4856,19 @@ expr *ExprEval::reduceExpr(const any *result, bool &invalidValue,
                     break;
                   }
                   case vpiUIntConst: {
-                    if (operands.size() == 1 || (size != 64)) {
+                    int32_t useSize = size;
+                    if (size == 64 && operands.size() != 1 && concatElemW > 0 &&
+                        concatElemW < 64) {
+                      useSize = (int32_t)concatElemW;
+                      csize += useSize - size;
+                    }
+                    if (operands.size() == 1 || (useSize != 64)) {
                       sv.remove_prefix(std::string_view("UINT:").length());
                       uint64_t iv = 0;
                       if (NumUtils::parseUint64(sv, &iv) == nullptr) {
                         iv = 0;
                       }
-                      std::string bin = NumUtils::toBinary(size, iv);
+                      std::string bin = NumUtils::toBinary(useSize, iv);
                       if (op->VpiReordered()) {
                         std::reverse(bin.begin(), bin.end());
                       }
@@ -4908,6 +4942,22 @@ expr *ExprEval::reduceExpr(const any *result, bool &invalidValue,
                       sv.remove_prefix(std::string_view("OCT:").length());
                       int64_t iv = 0;
                       if (NumUtils::parseOctal(sv, &iv) == nullptr) {
+                        iv = 0;
+                      }
+                      std::string bin = NumUtils::toBinary(size, iv);
+                      if (op->VpiReordered()) {
+                        std::reverse(bin.begin(), bin.end());
+                      }
+                      cval += bin;
+                    } else if (sv.find("INT:") == 0) {
+                      // Signed-int constant value string.  Without this the
+                      // IINT: fallback below strips 5 chars from "INT:<v>" and
+                      // mis-parses the value to 0 — folding a concat operand
+                      // such as `{Width{1'b1}} - ResetValue` (INT:3) to 0 and
+                      // corrupting the whole concatenation (prim_count).
+                      sv.remove_prefix(std::string_view("INT:").length());
+                      int64_t iv = 0;
+                      if (NumUtils::parseInt64(sv, &iv) == nullptr) {
                         iv = 0;
                       }
                       std::string bin = NumUtils::toBinary(size, iv);
@@ -5803,6 +5853,19 @@ expr *ExprEval::reduceExpr(const any *result, bool &invalidValue,
         reduceExpr((expr *)index, invalidValue, inst, pexpr, muteError));
     if (invalidValue == false) {
       any *object = getObject(name, inst, pexpr, muteError);
+      // Resolve the base's DECLARED typespec via the host functor.  When the
+      // base is a packed-array parameter (`logic [N-1:0][W-1:0] P`), getObject
+      // hands back P's already-folded value CONSTANT — which no longer carries
+      // the packed-array dimensions — so a later element-select loses the
+      // geometry and degrades to a single-bit select (OpenTitan prim_count's
+      // `ResetValues[k]` returned 1 bit instead of the W-bit element).  Grab the
+      // declared typespec by name and pass it to reducePackedElemSelect below as
+      // cts_fallback so it can still find the ranges.
+      const typespec *bsel_param_ts = nullptr;
+      if (getTypespecFunctor) {
+        if (any *tsobj = getTypespecFunctor(name, inst, pexpr))
+          bsel_param_ts = any_cast<const typespec *>(tsobj);
+      }
       if (object) {
         if (param_assign *passign = any_cast<param_assign *>(object)) {
           object = (any *)passign->Rhs();
@@ -5945,7 +6008,7 @@ expr *ExprEval::reduceExpr(const any *result, bool &invalidValue,
           // reducePackedElemSelect) — bit select only for scalar vectors.
           if (constant *ec = reducePackedElemSelect(
                   (constant *)object, (int64_t)index_val, this, s,
-                  invalidValue, inst, pexpr, muteError)) {
+                  invalidValue, inst, pexpr, muteError, bsel_param_ts)) {
             result = ec;
                   } else {
             result = reduceBitSelect((constant *)object,
