@@ -6440,7 +6440,20 @@ expr *ExprEval::reduceExpr(const any *result, bool &invalidValue,
           reduceExpr((expr *)index, invalidValue, inst, pexpr, muteError));
       if (object) {
         UHDM_OBJECT_TYPE otype = object->UhdmType();
-        if (otype == UHDM_OBJECT_TYPE::uhdmoperation) {
+        if (otype == UHDM_OBJECT_TYPE::uhdmarray_expr) {
+          // An UNPACKED array value expanded from a `default:` pattern is an
+          // array_expr, not an assignment-pattern operation, so `P[i][j]` on
+          // such a parameter selected nothing and the enclosing const function
+          // never folded (axi_id_serialize's `IdMap[i][0]`).
+          array_expr *ae = (array_expr *)object;
+          VectorOfexpr *ops = ae->Exprs();
+          if (ops && (index_val < ops->size())) {
+            object = ops->at(index_val);
+            selection = true;
+          } else {
+            invalidValue = true;
+          }
+        } else if (otype == UHDM_OBJECT_TYPE::uhdmoperation) {
           operation *op = (operation *)object;
           int32_t opType = op->VpiOpType();
           if (opType == vpiAssignmentPatternOp) {
